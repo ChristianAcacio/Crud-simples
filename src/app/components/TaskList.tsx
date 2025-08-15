@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 
 interface Task {
   id: number;
@@ -7,163 +7,232 @@ interface Task {
   completed: boolean;
 }
 
-interface GithubUser {
-  id: number;
-  login: string;
-  avatar_url: string;
-  html_url: string;
+interface TaskListProps {
+  initialTasks: Task[];
 }
 
-export default function TaskList() {
-  const [tasks, setTasks] = useState<Task[]>([]);
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
+
+type Filter = 'all' | 'active' | 'completed';
+
+export default function TaskList({ initialTasks }: TaskListProps) {
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [newTask, setNewTask] = useState('');
-  const [githubUsers, setGithubUsers] = useState<GithubUser[]>([]);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchTasks();
-    fetchGithubUsers();
-  }, []);
+  const counts = useMemo(() => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.completed).length;
+    const active = total - completed;
+    return { total, completed, active };
+  }, [tasks]);
 
-  const fetchTasks = async () => {
-    try {
-      const response = await fetch('http://localhost:3000/api/tasks');
-      const data = await response.json();
-      setTasks(data);
-    } catch (error) {
-      console.error('Erro ao carregar tarefas:', error);
+  const visibleTasks = useMemo(() => {
+    switch (filter) {
+      case 'active':
+        return tasks.filter(t => !t.completed);
+      case 'completed':
+        return tasks.filter(t => t.completed);
+      default:
+        return tasks;
     }
-  };
+  }, [tasks, filter]);
 
-  const fetchGithubUsers = async () => {
+  const refresh = async () => {
     try {
-      const response = await fetch('https://api.github.com/users?per_page=5');
-      const data = await response.json();
-      setGithubUsers(data);
-    } catch (error) {
-      console.error('Erro ao carregar usuários do GitHub:', error);
+      setLoading(true);
+      setError(null);
+      const res = await fetch(`${API_URL}/tasks`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: Task[] = await res.json();
+      setTasks(data);
+    } catch (e: any) {
+      setError('Não foi possível carregar as tarefas. Verifique se o backend está rodando.');
+      console.error(e);
+    } finally {
+      setLoading(false);
     }
   };
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTask.trim()) return;
-
+    const title = newTask.trim();
+    if (!title) return;
+    setError(null);
     try {
-      const response = await fetch('http://localhost:3000/api/tasks', {
+      const response = await fetch(`${API_URL}/tasks`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title: newTask }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
       });
-      const data = await response.json();
-      setTasks([...tasks, data]);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data: Task = await response.json();
+      setTasks(prev => [...prev, data]);
       setNewTask('');
-    } catch (error) {
-      console.error('Erro ao adicionar tarefa:', error);
+    } catch (e: any) {
+      setError('Erro ao adicionar tarefa.');
+      console.error(e);
     }
   };
 
   const toggleTask = async (id: number) => {
     try {
-      const task = tasks.find(t => t.id === id);
-      const response = await fetch(`http://localhost:3000/api/tasks/${id}`, {
+      const current = tasks.find(t => t.id === id);
+      if (!current) return;
+      const response = await fetch(`${API_URL}/tasks/${id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ completed: !task?.completed }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: !current.completed }),
       });
-      const data = await response.json();
-      setTasks(tasks.map(task => task.id === id ? data : task));
-    } catch (error) {
-      console.error('Erro ao atualizar tarefa:', error);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data: Task = await response.json();
+      setTasks(prev => prev.map(t => (t.id === id ? data : t)));
+    } catch (e: any) {
+      setError('Erro ao atualizar tarefa.');
+      console.error(e);
     }
   };
 
   const deleteTask = async (id: number) => {
     try {
-      await fetch(`http://localhost:3000/api/tasks/${id}`, {
-        method: 'DELETE',
-      });
-      setTasks(tasks.filter(task => task.id !== id));
-    } catch (error) {
-      console.error('Erro ao deletar tarefa:', error);
+      const res = await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setTasks(prev => prev.filter(t => t.id !== id));
+    } catch (e: any) {
+      setError('Erro ao deletar tarefa.');
+      console.error(e);
+    }
+  };
+
+  const clearCompleted = async () => {
+    const completedIds = tasks.filter(t => t.completed).map(t => t.id);
+    if (completedIds.length === 0) return;
+    setError(null);
+    try {
+      await Promise.all(
+        completedIds.map(id => fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' }))
+      );
+      setTasks(prev => prev.filter(t => !t.completed));
+    } catch (e: any) {
+      setError('Erro ao limpar tarefas concluídas.');
+      console.error(e);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto mt-8 p-4">
-      {/* Lista de Tarefas */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4">Lista de Tarefas</h2>
-        <form onSubmit={addTask} className="mb-4 flex">
+    <div className="max-w-3xl mx-auto py-14 px-4">
+      <div className="bg-white rounded-lg shadow p-10">
+        <div className="flex items-center justify-between gap-8 mb-8">
+      <h2 className="text-2xl font-semibold text-black">Minhas Tarefas</h2>
+          <button
+            onClick={refresh}
+      className="text-sm px-4 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            Atualizar
+          </button>
+        </div>
+
+    <form onSubmit={addTask} className="flex items-center gap-4 mb-8">
           <input
             type="text"
             value={newTask}
             onChange={(e) => setNewTask(e.target.value)}
-            placeholder="Nova tarefa..."
-            className="flex-1 p-2 border rounded-l"
+            placeholder="Adicionar nova tarefa"
+      className="flex-1 h-10 box-border px-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-black placeholder:text-black"
           />
-          <button 
+          <button
             type="submit"
-            className="bg-blue-500 text-white px-4 py-2 rounded-r hover:bg-blue-600"
+      className="inline-flex items-center justify-center h-10 text-sm px-4 rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
           >
             Adicionar
           </button>
         </form>
 
-        <ul className="space-y-2">
-          {tasks.map((task) => (
-            <li
-              key={task.id}
-              className="flex items-center justify-between p-3 bg-white rounded shadow"
+        <div className="flex items-center justify-between flex-wrap gap-6 mb-8">
+          <div className="text-sm text-gray-600">
+            {counts.active} pendentes • {counts.completed} concluídas • {counts.total} no total
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setFilter('all')}
+        className={`text-sm px-3 py-1.5 rounded-md border ${
+                filter === 'all'
+          ? 'bg-emerald-600 text-white border-transparent'
+          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+              }`}
             >
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={task.completed}
-                  onChange={() => toggleTask(task.id)}
-                  className="mr-3"
-                />
-                <span className={task.completed ? 'line-through text-gray-500' : ''}>
-                  {task.title}
-                </span>
-              </div>
-              <button
-                onClick={() => deleteTask(task.id)}
-                className="text-red-500 hover:text-red-700"
-              >
-                Deletar
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Lista de Usuários do GitHub */}
-      <div>
-        <h2 className="text-2xl font-bold mb-4">Usuários do GitHub</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {githubUsers.map((user) => (
-            <div key={user.id} className="bg-white p-4 rounded shadow">
-              <img
-                src={user.avatar_url}
-                alt={user.login}
-                className="w-16 h-16 rounded-full mx-auto mb-2"
-              />
-              <h3 className="text-lg font-semibold text-center">{user.login}</h3>
-              <a
-                href={user.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:text-blue-700 block text-center mt-2"
-              >
-                Ver Perfil
-              </a>
-            </div>
-          ))}
+              Todas
+            </button>
+            <button
+              onClick={() => setFilter('active')}
+        className={`text-sm px-3 py-1.5 rounded-md border ${
+                filter === 'active'
+          ? 'bg-emerald-600 text-white border-transparent'
+          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+              }`}
+            >
+              Ativas
+            </button>
+            <button
+              onClick={() => setFilter('completed')}
+        className={`text-sm px-3 py-1.5 rounded-md border ${
+                filter === 'completed'
+          ? 'bg-emerald-600 text-white border-transparent'
+          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+              }`}
+            >
+              Concluídas
+            </button>
+            <button
+              onClick={clearCompleted}
+              disabled={counts.completed === 0}
+        className="text-sm px-3 py-1.5 rounded-md border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+            >
+              Limpar concluídas
+            </button>
+          </div>
         </div>
+
+        {error && (
+          <div className="mb-4 p-3 rounded text-sm bg-red-50 text-red-700 border border-red-200">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-12 text-center text-gray-500">Carregando…</div>
+        ) : visibleTasks.length === 0 ? (
+          <div className="py-12 text-center text-gray-500">Nada por aqui. Adicione uma tarefa para começar.</div>
+        ) : (
+          <ul className="space-y-4">
+            {visibleTasks.map((task) => (
+              <li
+                key={task.id}
+                className="flex items-center justify-between p-5 bg-gray-50 rounded border"
+              >
+                <label className="flex items-center gap-4 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={task.completed}
+                    onChange={() => toggleTask(task.id)}
+                    className="size-4"
+                  />
+                  <span className={task.completed ? 'line-through text-black' : 'text-black'}>
+                    {task.title}
+                  </span>
+                </label>
+                <button
+                  onClick={() => deleteTask(task.id)}
+                  className="text-sm px-3 py-1.5 rounded-md border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                >
+                  Remover
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
