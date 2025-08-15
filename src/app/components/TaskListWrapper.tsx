@@ -1,9 +1,10 @@
 import TaskList from './TaskList';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
+// Use Next.js rewrite proxy by default to avoid CORS and host issues
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 async function getInitialData() {
   try {
-    const tasksRes = await fetch(`${API_URL}/tasks`, {
+  const tasksRes = await fetch(`${API_BASE}/tasks`, {
       cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
     });

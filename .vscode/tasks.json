@@ -13,6 +13,27 @@
 				"$eslint-stylish"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Next.js dev server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Backend dev server",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"cd backend && npm run start:dev"
+			],
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }

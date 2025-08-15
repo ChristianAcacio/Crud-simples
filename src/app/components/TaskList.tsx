@@ -11,7 +11,8 @@ interface TaskListProps {
   initialTasks: Task[];
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
+// Use Next.js rewrite proxy by default; allow override via env
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 type Filter = 'all' | 'active' | 'completed';
 
@@ -44,7 +45,7 @@ export default function TaskList({ initialTasks }: TaskListProps) {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_URL}/tasks`, { cache: 'no-store' });
+  const res = await fetch(`${API_BASE}/tasks`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Task[] = await res.json();
       setTasks(data);
@@ -62,7 +63,7 @@ export default function TaskList({ initialTasks }: TaskListProps) {
     if (!title) return;
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/tasks`, {
+  const response = await fetch(`${API_BASE}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title }),
@@ -81,7 +82,7 @@ export default function TaskList({ initialTasks }: TaskListProps) {
     try {
       const current = tasks.find(t => t.id === id);
       if (!current) return;
-      const response = await fetch(`${API_URL}/tasks/${id}`, {
+  const response = await fetch(`${API_BASE}/tasks/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: !current.completed }),
@@ -97,7 +98,7 @@ export default function TaskList({ initialTasks }: TaskListProps) {
 
   const deleteTask = async (id: number) => {
     try {
-      const res = await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${API_BASE}/tasks/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setTasks(prev => prev.filter(t => t.id !== id));
     } catch (e: any) {
@@ -112,7 +113,7 @@ export default function TaskList({ initialTasks }: TaskListProps) {
     setError(null);
     try {
       await Promise.all(
-        completedIds.map(id => fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' }))
+  completedIds.map(id => fetch(`${API_BASE}/tasks/${id}`, { method: 'DELETE' }))
       );
       setTasks(prev => prev.filter(t => !t.completed));
     } catch (e: any) {
